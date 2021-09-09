@@ -1,0 +1,418 @@
+% with support from brieftemplate © 2019 Marei Peischl, marei@texhackse.de
+%draft for checking boxes
+\documentclass[ngerman,parskip=half-]{scrartcl}
+
+%\usepackage{lua-visual-debug}
+\usepackage[fromalign=false]{scrletter} 
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{setspace}
+\usepackage{csvsimple}
+\usepackage{longtable}
+\usepackage{tabu}
+\usepackage{eurosym}
+\usepackage{blindtext}
+\usepackage{printlen}
+\usepackage{makecell}
+%\usepackage{hyperref}
+\usepackage{luacode}
+\usepackage{hhline}
+\usepackage[locale=DE]{siunitx}
+\usepackage{array}
+
+
+\begin{luacode}
+
+
+-- invoice table with calc fields
+invoice = { 
+    items={},
+    installments={},
+    vat={},
+    total={
+        gross=0,
+        paid=0,
+        due=0,
+    }
+}
+
+-- skr04 chart of account according to vat
+vatrates = {
+    [5]="3803",
+    [7]="3801",
+    [16]="3805",
+    [19]="3806",
+}
+
+-- create table with all data
+$for(service)$
+table.insert( invoice.items, {
+                Amount=$service.amount$,
+                Desc="$service.description$",
+                DateStart="$service.dateStart$",
+                DateEnd="$service.dateEnd$",
+                Price=$service.price$,
+                Vat=$service.vat$,
+    })
+$endfor$
+
+-- if installments have been payed, create table, set data
+$if(payment)$
+$for(payment)$
+table.insert( invoice.installments, {
+                Method="$payment.method$",
+                Date="$payment.date$",
+                Amount=$payment.amount$
+    })
+    invoice.total["paid"] = invoice.total["paid"] + $payment.amount$
+$endfor$
+$endif$
+
+-- calculate sum from items
+for _,line in pairs(invoice.items) do 
+
+    -- check if vat property already exists in vat table, if not set to zero for calc
+    if invoice.vat[line.Vat] == nil then invoice.vat[line.Vat] = 0 end
+
+    -- add to vat, add to gross
+    invoice.vat[line.Vat] = math.floor ( ( invoice.vat[line.Vat] + (line.Price * line.Amount * (line.Vat / 100) ) + 0.005 ) * 100 ) / 100
+    invoice.total["gross"] = math.floor ( ( invoice.total["gross"] + (line.Price * line.Amount * (1+ line.Vat / 100) ) + 0.005 ) * 100 ) / 100
+
+end
+
+-- if invoice set duebox, TODO if due
+function ifInvoice(title)
+    if string.match(title, "Rechnung") then
+        tex.print("\\duebox{" .. string.format("%.2f",invoice.total["gross"] - invoice.total["paid"]):gsub("%.", ",") .. "\\,\\euro}")
+    end
+end
+
+-- parse table and get lines
+function invoiceLines()
+   for _,item in pairs(invoice.items) do
+    local line = {}
+    table.insert(line, " \\invoiceitem{" .. item.Amount .. "}{" .. item.Desc .. "}{")
+    -- different wording for single day or span of work
+    if (item.DateStart == item.DateEnd) or (item.DateEnd == "") then
+        table.insert(line, "Leistungsdatum: " .. item.DateStart)
+    else
+        table.insert(line, "Leistungszeitraum: " .. item.DateStart .. " - " .. item.DateEnd)
+    end
+    table.insert(line, "}{" ..  string.format("%.2f", item.Price ):gsub("%.", ",") .. "}{" .. string.format("%.2f",math.floor( ( item.Price * item.Amount * (1 + item.Vat / 100) + 0.005 ) * 100 ) / 100 ):gsub("%.", ",") .. "}{" .. item.Vat .. "}{" .. string.format("%.2f",item.Price * item.Amount * (item.Vat / 100)):gsub("%.", ",") .. "} " )
+    tex.print(table.concat(line))
+    end
+end
+
+-- installments
+function invoiceInstallments()
+    for _,item in pairs(invoice.installments) do
+        tex.print("\\installmentitem{".. item.Method .. "}{" .. item.Date .."}{" .. string.format("%.2f",item.Amount):gsub("%.", ",") .. "}")        
+    end
+end
+
+-- get vat/sums for final 
+function invoiceVat (sums)
+    for vat,sum in pairs(invoice.vat) do
+        tex.print("\\\\[-4pt] \\tiny{ \\scriptsize{")
+        if sums == true then
+            tex.print("inkl. " .. string.format("%.2f",math.floor(sum*100+0.5)/100):gsub("%.", ",") .. "\\,\\euro")
+        else 
+            tex.print("inkl. " .. string.format("%d",vat) .. "\\,\\% USt.")
+        end
+        tex.print("}}")
+    end
+end
+
+function getTotal() 
+    -- write to --journal date of transaction and invoicenr
+    tex.print("\\write\\journal{" .. os.date("%Y/%m/%d") .. "  ($invoicenr$)}")
+
+    -- items comments for future review
+    for _,item in pairs(invoice.items) do
+        tex.print("\\write\\journal{\\space\\space  ;" .. item.Desc .. " (" .. item.Vat .. " \\% " .. item.Price .. " * " .. item.Amount  .. ")}")
+    end
+
+    -- create receivables from goods and services, skr04
+    tex.print("\\write\\journal{\\space\\space 1200\\space\\space " .. string.format("%.2f",invoice.total["gross"]):gsub("%.", ",") .. "€ }")
+
+    -- split all the vat rates in the invoice, according to vat table
+    for vat,sum in pairs(invoice.vat) do
+        tex.print("\\write\\journal{\\space\\space " .. vatrates[vat] .. "\\space\\space -" .. string.format("%.2f",sum):gsub("%.", ",") .. "€ }")
+    end
+
+    -- sales for profits, 
+    tex.print("\\write\\journal{\\space\\space 4200}")
+    tex.print("" .. string.format("%.2f",invoice.total["gross"]):gsub("%.", ","))
+end
+\end{luacode}
+
+
+	\usepackage{roboto}
+	\renewcommand*{\familydefault}{\sfdefault}
+    % set roboto for all fonts
+	\setmainfont{roboto}
+ 
+\usepackage{babel}%Spracheinstellung, zusammen mit der Sprachoption bei documentclass
+
+
+%define additional vars
+\newkomavar[Dokumententyp]{doctype}
+\newkomavar[Angebotsnr.]{invoicenumber}
+\newkomavar[Kundennummer]{accountnumber}
+\newkomavar[USt. ID]{fromvat}
+\newkomavar[IBAN]{fromiban}
+\newkomavar[BIC]{frombic}
+\newkomavar[Zweck]{banksubject}
+\newkomavar[Kontoinhaber]{frombankowner}
+
+
+
+% set vars
+\setkomavar{fromname}{Rotor KunstKultur}
+\setkomavar{fromaddress}{Weingasse 4\\09599 Freiberg}
+\setkomavar{fromemail}{mail@mail.de}
+\setkomavar{frommobilephone}{01234/56789}
+
+\setkomavar{fromvat}{DE123456789}
+
+\setkomavar{frombankowner}{Rotor KunstKultur}
+\setkomavar{frombank}{BANKN}
+\setkomavar{fromiban}{DE12 34 56 789}
+\setkomavar{frombic}{BOBOBOBOB}
+
+\setkomavar{invoicenumber}{ $invoicenr$ }
+\setkomavar{accountnumber}{ $accountnr$ }
+\setkomavar{doctype}{ $title$ } % Rechnung, Angebot
+
+\setkomavar{title}{}
+
+
+%styling
+%faltmarken
+\KOMAoptions{foldmarks=true}
+%logo 
+\RequirePackage{graphicx}
+\KOMAoptions{fromlogo=true}
+% middot als separator
+\setkomavar{backaddressseparator}{ · }
+% remove refline
+\KOMAoptions{refline=nodate}
+% move content up
+\setplength{refaftervskip}{-4em}
+%move location / infobox
+\setplength{lochpos}{-130mm}
+%\setplength{locvpos}{10mm}
+\setplength{locwidth}{70mm}
+
+%disable marginpar
+\setlength{\marginparwidth}{0mm}
+\setlength{\marginparsep}{0mm}
+
+\setlength{\oddsidemargin}{\useplength{toaddrhpos}}
+\addtolength{\oddsidemargin}{-1in}
+\setlength{\textwidth}{\useplength{firstheadwidth}}
+
+%boxes
+%Absenderergänzung
+\setkomavar{location}{%
+    \begin{tabularx}{\useplength{locwidth}}{@{}lX@{}}
+        \usekomavar*{date}&\usekomavar{date}\\
+        \usekomavar*{invoicenumber}&\usekomavar{invoicenumber}\\
+        \usekomavar*{accountnumber}&\usekomavar{accountnumber}
+    \end{tabularx}
+}
+
+%header image only
+\setkomavar{firsthead}{%
+    \includegraphics[width=3cm]{logo.pdf}
+}
+   
+%Definitionen für Seitenfuß
+\setkomavar{firstfoot}{%
+         \parbox[t]{\textwidth}{\footnotesize
+         
+         \begin{tabular}[m]{c@{}}%
+             \usekomavar{fromname} \\
+             \usekomavar{frommobilephone} \\
+             \usekomavar{fromemail}
+         \end{tabular}%
+         \hfill
+         \begin{tabular}[m]{c@{}}%
+             
+             \usekomavar*{fromvat} \\
+             \usekomavar{fromvat} \\
+         \end{tabular}%
+         \hfill
+         \begin{tabular}[m]{c@{}}%
+             \thepage/\letterlastpage\\
+             
+         \end{tabular}%
+         
+     }%
+     }
+
+\setkomavar{nextfoot}{%
+        \parbox[t]{\textwidth}{\footnotesize
+        
+        \begin{tabular}[m]{c@{}}%
+            \usekomavar{fromname} \\
+            \usekomavar{frommobilephone} \\
+            \usekomavar{fromemail}
+        \end{tabular}%
+        \hfill
+        \begin{tabular}[m]{c@{}}%
+            
+            \usekomavar*{fromvat} \\
+            \usekomavar{fromvat} \\
+        \end{tabular}%
+        \hfill
+        \begin{tabular}[m]{c@{}}%
+            \thepage/\letterlastpage\\
+            
+        \end{tabular}%
+        
+    }%
+    }
+
+
+%beautiful quotes
+\newcommand{\quotes}[1]{\flqq{}#1\frqq{}}
+
+%commercial minus
+\newcommand{\textdis}{\raisebox{1.2ex}{.}\kern-0.2em/\kern-0.2em\raisebox{-0.13ex}{.}}
+
+
+%define invoiceitem
+\newcommand{\invoiceitem}[7]{%
+    #1  
+    & \makecell*[l]{#2 
+    \\[-6pt] \scriptsize{#3} }    
+    & #4{\,\euro} 
+    & \makecell[r]{#5{\,\euro} 
+    \\[-6pt] \tiny{inkl. #6\,\% USt.: #7{\,\euro}}} 
+    \\ \hline
+}
+
+%define installmentitem
+\newcommand{\installmentitem}[3]{%
+    & \multicolumn{2}{r}{ \makecell[r]{ #1 am #2 } } & \textdis{\,#3\,\euro} \\ \cline{2-4}
+    
+}
+
+%beautiful due-box
+\newcommand{\duebox}[1]{
+{
+    \renewcommand{\arraystretch}{1.2}
+    \tabulinesep=2pt
+
+    \begin{longtabu} to \useplength{firstheadwidth} {
+        X[2,b]
+        |X[1,b]
+        X[2,b]
+        }
+        \hline
+        \endfirsthead
+        \multicolumn{1}{c|}{\textbf{Offener Betrag}} & \multicolumn{2}{l}{\small{Zahlbar unmittelbar in Bar oder innerhalb von 14 Tagen an:}} \\ 
+         \multicolumn{1}{c|}{\multirow[c]{3}{*}[-0.7em]{\fontsize{35pt}{35pt}\textbf{#1}}} & {\scriptsize\textbf{\usekomavar*{fromiban}}} & \usekomavar{fromiban} \\ 
+         & {\scriptsize\textbf{Betreff}} & RE-$invoicenr$  \\
+         & {\scriptsize\textbf{\usekomavar*{frombankowner}}} & \usekomavar{frombankowner}  \\
+         & {\scriptsize\textbf{\usekomavar*{frombic}}} & \usekomavar{frombic}  \\
+         \multicolumn{1}{c|}{\textbf{inkl. USt.}} & {\scriptsize\textbf{\usekomavar*{frombank}}} & \usekomavar{frombank} \\
+        \hline
+    \end{longtabu}
+}
+}
+
+
+%TODO: PDF Metadata, not compatible with gs PDF-A-Conversion
+%\newcommand\mypdfinfo[2]{\hypersetup{pdfinfo={#1=#2}}}
+%\usekomavar[\mypdfinfo{Author}]{fromname}
+%\usekomavar[\mypdfinfo{Subject}]{invoicenumber}
+%\usekomavar[\mypdfinfo{Title}]{doctype}
+%\usekomavar[\mypdfinfo{Keywords}]{doctype}
+%\hypersetup{%
+%  pdfinfo = {%
+%    Creator={lualatex}}}
+
+%write journal file according to invoice
+\newwrite\journal
+\immediate\openout\journal="\jobname.journal"
+
+\begin{document}
+
+% get letter data from pandoc
+\begin{letter}{
+    $for(to)$
+    $to$\\
+    $endfor$
+    }
+
+\opening{$opening$}
+    
+% if letter write lines, if because of unnecessary newline in letter
+$if(letter)$
+$for(letter)$
+$letter$\\
+$endfor$
+$endif$
+
+    % close if defined
+$for(close)$
+$close$
+$endfor$
+    
+% TODO: implement komavar logic, override by yml
+$if(close)$
+\hspace*{1em} Anselm Peischl \\
+\hspace*{1em} Rotor KunstKultur
+$endif$
+    
+% TODO: logic, if invoice now Duebox
+\directlua{ ifInvoice( [=[$title$]==]=] ) }
+
+% if has letter, set newpage for invoice
+$if(letter)$
+\newpage
+$endif$
+
+% if no title, set headline here
+\Ifkomavarempty{title}{{\huge\bfseries \usekomavar{doctype}}}{\vspace{2em}}
+
+
+% define invoice table
+{\tabulinesep=2pt\begin{longtabu} to \useplength{firstheadwidth}{X[2,c,m]|X[24,l,m]|X[6,r,m]|X[8,r,m]|}\hline\endfirsthead \textbf{X} & \textbf{Position} & \textbf{Netto}  & \textbf{Summe} \\ \hline
+
+% invoice lines
+\luaexec{ invoiceLines() }
+
+% sum it up
+\multicolumn{1}{l}{\makecell[r]{}} 
+& \multicolumn{2}{r|}{ \makecell[r]{ Gesamtbetrag \luaexec{ invoiceVat(false) } }} 
+& \makecell[r]{ 
+     \luaexec{ getTotal() }\,\euro  
+     \luaexec{ invoiceVat(true) }  } 
+    \\ \cline{2-4}
+
+% installments if necessary
+\luaexec{ invoiceInstallments() }
+
+
+
+\end{longtabu}
+}
+
+% if additional stuff to mention
+$if(conditions)$
+$for(conditions)$
+    $conditions$ \par
+$endfor$
+$endif$
+
+%TODO: enclosures
+
+$if(anhang)$
+\encl{$anhang$}
+$endif$
+
+\end{letter}
+\end{document}
