@@ -2,7 +2,9 @@
 An archived git of my former invoicing process
 
 Copyright Logo [:R] (C) Anselm Peischl - no usage without permission.
+
 Copyright Code (C) Anselm Peischl, 2021 - do what you want.
+
 This is a strong modification of the brieftemplate by (c) Marei Peischl (https://github.com/TeXhackse/LaTeX-basics/blob/main/Briefe/brieftemplate.tex)
 
 # Generated Files
